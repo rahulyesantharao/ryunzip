@@ -13,7 +13,7 @@
 int read_bit(struct deflate_stream *stream) {
     if(!stream->pos) { // read in new byte
         stream->pos = 0x01;
-        if(fread(&stream->buf, sizeof(unsigned char), 1, stream->fp) < 1) {
+        if(fread(&stream->buf, 1, 1, stream->fp) < 1) {
             perror("Error reading in read_bit\n");
             exit(1);
         }
@@ -31,71 +31,64 @@ int read_bits(struct deflate_stream *stream, int n) {
     return ret;
 }
 
-void read_header(struct deflate_stream *file, struct Header *header) {
+void read_header(struct deflate_stream *stream, struct FullFile *file) {
     int i;
 
-    // magic bits
-    fread(&header->id1, 1, 1, file->fp);
-    fread(&header->id2, 1, 1, file->fp);
-    if(!(header->id1 == 0x1f && header->id2 == 0x8b)) { // magic bits not set
-        fprintf(stderr, "missing magic bits: 0x%02x 0x%02x\n", header->id1, header->id2); 
+    // read in header
+    fread(&file->header, 1, sizeof(file->header), stream->fp);
+    
+    // Check header validity
+    if(!(file->header.id1 == 0x1f && file->header.id2 == 0x8b)) { // magic bits not set
+        fprintf(stderr, "missing magic bits: 0x%02x 0x%02x\n", file->header.id1, file->header.id2); 
+        exit(1);
+    }
+    if(file->header.cm != 0x08) {
+        fprintf(stderr, "compression method isn't DEFLATE: 0x%02x\n", file->header.cm);
+        exit(1);
+    }
+    if(!(file->header.xfl == 0 || file->header.xfl == 2 || file->header.xfl == 4)) {
+        fprintf(stderr, "unhandled XFL: 0x%02x\n", file->header.xfl);
         exit(1);
     }
 
-    // compression method
-    fread(&header->cm, 1, 1, file->fp);
-    if(header->cm != 0x08) {
-        fprintf(stderr, "compression method isn't DEFLATE: 0x%02x\n", header->cm);
-        exit(1);
-    }
-
-    fread(&header->flg, 1, 1, file->fp); // flags
-    header->mtime = 0; // clear the top 4 bytes
-    fread(&header->mtime, 1, 4, file->fp); // file mtime
-
-    fread(&header->xfl, 1, 1, file->fp); // extra flags
-    if(!(header->xfl == 0 || header->xfl == 2 || header->xfl == 4)) {
-        fprintf(stderr, "unhandled XFL: 0x%02x\n", header->xfl);
-        exit(1);
-    }
-
-    fread(&header->os, 1, 1, file->fp); // OS
-
-    // deal with flags (only fname)
-    if(header->flg & FNAME) { // read name
+    // deal with flags (only fname right now)
+    if(file->header.flg & FNAME) { // read name
         i = 0;
         while(i < MAX_FILE_NAME - 1) {
-            fread(header->filename + i, 1, 1, file->fp);
-            if(header->filename[i++] == '\0') break;
+            fread(file->filename + i, 1, 1, stream->fp);
+            if(file->filename[i++] == '\0') break;
         }
-        if(header->filename[i-1] != '\0') {
+        if(file->filename[i-1] != '\0') {
             fprintf(stderr, "Filename too long!\n");
             exit(1);
         }
     }
 }
 
-void print_header(struct Header *header) {
+void print_header(struct FullFile *file) {
     struct tm mtime;
+    time_t mtime_s;
     char buf[80];
     
     // OS type
-    if(header->os == 3) printf("Compression OS: Unix\n");
+    if(file->header.os == 3) printf("Compression OS: Unix\n");
     else printf("Compression OS: Not Unix\n");
 
     // file name
-    if(header->flg & FNAME) {
-        printf("Original File Name: %s\n", header->filename);
+    if(file->header.flg & FNAME) {
+        printf("Original File Name: %s\n", file->filename);
     }
 
-    // time  
-    mtime = *localtime(&header->mtime);
+    // time
+    mtime_s = *(time_t*)(file->header.mtime);
+    mtime_s &= (0xffffffff); // clear out top 4 bits
+    mtime = *localtime(&mtime_s);
     strftime(buf, sizeof(buf), "%a %Y-%m-%d %H:%M:%S %Z", &mtime);
     printf("Original File mtime: %s\n", buf);
 
     // extra flags
-    if(header->xfl == 2) printf("XFL=2: Max compression, slowest algorithm\n");
-    else if(header->xfl == 4) printf("XFL=4: Fastest compression algorithm\n");
+    if(file->header.xfl == 2) printf("XFL=2: Max compression, slowest algorithm\n");
+    else if(file->header.xfl == 4) printf("XFL=4: Fastest compression algorithm\n");
     else printf("XFL=0: No extra information\n");
 }
 
@@ -158,7 +151,7 @@ void build_tree(struct huffman_node* root, struct huffman_length lengths[], int 
     }
 }
 
-void decode_block(struct huffman_node *literal_root, struct huffman_node *dist_root, struct deflate_stream *file, struct Header *header) {
+void decode_block(struct huffman_node *literal_root, struct huffman_node *dist_root, struct deflate_stream *stream, char *orig_filename) {
     static char buf[MAX_BACK_DIST]; // buffer for backwards distances; remains across blocks
     
     int extra, length, dist, bit, pos, backpos;
@@ -167,7 +160,7 @@ void decode_block(struct huffman_node *literal_root, struct huffman_node *dist_r
     FILE *out;
     
     printf("decode_block started\n");
-    snprintf(filename, MAX_FILE_NAME, "%s", header->filename);
+    snprintf(filename, MAX_FILE_NAME, "%s", orig_filename);
     if((out = fopen(filename, "w")) == NULL) {
         perror("Error occurred while opening output file.\n");
         exit(1);
@@ -179,7 +172,7 @@ void decode_block(struct huffman_node *literal_root, struct huffman_node *dist_r
     while(1) {
         node = literal_root;
         while(node->val == -1) { // not a leaf node
-            bit = read_bit(file);
+            bit = read_bit(stream);
             printf("%d", bit);
             if(node->children[bit] == NULL) {
                 fprintf(stderr, "Unknown Huffman code encountered.\n");
@@ -196,12 +189,12 @@ void decode_block(struct huffman_node *literal_root, struct huffman_node *dist_r
             pos = (pos + 1)%MAX_BACK_DIST;
             continue;
         } else {
-            extra = read_bits(file, LITERAL_EXTRA_BITS(node->val));
+            extra = read_bits(stream, LITERAL_EXTRA_BITS(node->val));
             length = extra_alpha_start[node->val - LITERAL_EXT_BASE] + extra;
         }
 
         if(dist_root == NULL) {
-            dist = read_bits(file, FIXED_DIST_BITS);
+            dist = read_bits(stream, FIXED_DIST_BITS);
         }
         else {
 
@@ -224,35 +217,35 @@ void decode_block(struct huffman_node *literal_root, struct huffman_node *dist_r
     }
 }
 
-void deflate(struct Header *header, struct deflate_stream *file) {
+void inflate(struct deflate_stream *stream, char *orig_filename) {
     int bfinal, btype;
     int len, nlen; // case 0
     char buf[NONCOMPRESSIBLE_BLOCK_SIZE];
     struct huffman_node root; // cases 1, 2
     
     do {
-        bfinal = read_bits(file, 1);
-        btype = read_bits(file, 2);
+        bfinal = read_bits(stream, 1);
+        btype = read_bits(stream, 2);
         printf("\nbfinal: %d, btype: %d\n", bfinal, btype);
         if(btype == 0) { // uncompressed
-            while(file->pos != 0) read_bits(file, 1); // ignore remainder of block
-            len = read_bits(file, 2);
-            nlen = read_bits(file, 2);
+            while(stream->pos != 0) read_bits(stream, 1); // ignore remainder of block
+            len = read_bits(stream, 2);
+            nlen = read_bits(stream, 2);
             if((len & nlen) != 0) { // sanity check
                 fprintf(stderr, "len, nlen are not complements\n");
                 exit(1);
             }
-            fread(buf, 1, len, file->fp);
+            fread(buf, 1, len, stream->fp);
             // TODO: Copy to output
         } else if(btype == 1) { // compressed with fixed Huffman
             build_tree(&root, fixed_huffman, 4);
             // struct huffman_node *temp = traverse_tree(&root, 0b10011000, 8, 0);
             // printf("10011000: %d\n", temp->val);
-            decode_block(&root, NULL, file, header);
+            decode_block(&root, NULL, stream, orig_filename);
 
 
         } else if(btype == 2) { // compressed with dynamic Huffman
-            // decode(file);
+            // decode(stream);
         } else {
             fprintf(stderr, "Invalid block type: %d", btype);
             exit(1);
@@ -261,8 +254,11 @@ void deflate(struct Header *header, struct deflate_stream *file) {
 }
 
 int main(int argc, char *argv[]) {
-    struct deflate_stream file;
-    struct Header header;
+    struct deflate_stream stream;
+    struct FullFile file;
+
+    memset(&stream, 0, sizeof(stream));
+    memset(&file, 0, sizeof(file));
     
     // Open file
     if(argc != 2) { // check number of arguments
@@ -270,16 +266,16 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    if((file.fp=fopen(argv[1], "rb")) == NULL) {
+    if((stream.fp=fopen(argv[1], "rb")) == NULL) {
         perror("Invalid file; can't open.\n");
         return 1;
     }
 
-    read_header(&file, &header);
-    print_header(&header);
-    deflate(&header, &file);
+    read_header(&stream, &file);
+    print_header(&file);
+    inflate(&stream, file.filename);
 
-    if(fclose(file.fp) != 0) {
+    if(fclose(stream.fp) != 0) {
         perror("Error occurred while closing file.\n");
         return 1;
     }

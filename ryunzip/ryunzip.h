@@ -21,12 +21,27 @@ struct deflate_stream {
     unsigned char pos;
 };
 
+// Gzip File Format
+// https://www.forensicswiki.org/wiki/Gzip
 struct Header {
     unsigned char id1, id2;
     unsigned char cm, flg;
-    time_t mtime;
+    unsigned char mtime[4]; // time_t
     unsigned char xfl, os;
+};
+
+struct Footer {
+    unsigned char checksum[4];
+    int filesize;
+};
+
+struct FullFile {
+    struct Header header;
+    char *fextra;
     char filename[MAX_FILE_NAME];
+    char *fcomment;
+    unsigned char crc16[2]; 
+    struct Footer footer;
 };
 
 struct Tree {
@@ -83,10 +98,12 @@ int extra_dist_start[30] = {
 int read_bit(struct deflate_stream *stream);
 int read_bits(struct deflate_stream *stream, int n);
 
-void read_header(struct deflate_stream *file, struct Header *header);
-void print_header(struct Header *header);
+void read_header(struct deflate_stream *stream, struct FullFile *file);
+void print_header(struct FullFile *file);
 
 struct huffman_node* traverse_tree(struct huffman_node *root, unsigned int code, int len, int create);
 void build_tree(struct huffman_node *root, struct huffman_length lengths[], int lengths_size);
 
-void deflate(struct Header *header, struct deflate_stream *file);
+void decode_block(struct huffman_node *literal_root, struct huffman_node *dist_root, struct deflate_stream *stream, char *orig_filename);
+
+void inflate(struct deflate_stream *stream, char *orig_filename);
