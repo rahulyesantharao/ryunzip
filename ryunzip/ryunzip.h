@@ -2,8 +2,9 @@
  Standard definitions for gzip (from RFCs 1951/1952).
  */
 
-#define MAX_BITS 10 // not sure about this
+#define MAX_HUFFMAN_LENGTH 11 // TODO: FIGURE THIS OUT
 #define MAX_FILE_NAME 100 // arbitrarily set
+#define NONCOMPRESSIBLE_BLOCK_SIZE 65535 // max size for uncompressed block
 
 // Flags (FLG)
 #define FTEXT (0x01) // only optionally set
@@ -28,21 +29,38 @@ struct Header {
 };
 
 struct Tree {
-    int len, code;
+    unsigned int len;
+    unsigned int code;
 }; 
 
+struct huffman_length {
+    unsigned int end;
+    unsigned int len;
+};
+
+struct huffman_node {
+    unsigned int val;
+    struct huffman_node *children[2];
+};
+
 // Fixed structures
-int fixed_huffman[(1<<9)];
+struct huffman_length fixed_huffman[4] = { // defined in RFC 1952 (Section 3.2.6)
+    {143, 8},
+    {255, 9},
+    {279, 7},
+    {287, 8}
+};
+
 int alphabet[30];
 
 // Functions
-void init();
-
 int read_bit(struct deflate_stream *stream);
 int read_bits(struct deflate_stream *stream, int n);
-int write_data();
 
-void read_header();
-void print_header();
+void read_header(struct deflate_stream *file, struct Header *header);
+void print_header(struct Header *header);
 
-void deflate();
+struct huffman_node* traverse_tree(struct huffman_node *root, unsigned int code, int create);
+void build_tree(struct huffman_node *root, struct huffman_length lengths[], int lengths_size);
+
+void deflate(struct deflate_stream *file);

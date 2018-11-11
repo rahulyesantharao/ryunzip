@@ -5,17 +5,30 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <errno.h>
+#include <string.h>
 
 #include "ryunzip.h"
 
-void init() {
-    int i, n = 0;
-    
-    // Initialize the static Huffman table (RFC 1952)
-    for(i = 0b00110000; i<0b10111111; ++i) fixed_huffman[i] = n++;
-    for(i = 0b110010000; i<0b111111111; ++i) fixed_huffman[i] = n++;
-    for(i = 0b0000000; i<0b0010111; ++i) fixed_huffman[i] = n++;
-    for(i = 0b11000000; i<0b11000111; ++i) fixed_huffman[i] = n++;
+int read_bit(struct deflate_stream *stream) {
+    if(!stream->pos) { // read in new byte
+        stream->pos = 0x01;
+        if(fread(&stream->buf, sizeof(unsigned char), 1, stream->fp) < 1) {
+            fprintf(stderr, "Error reading data\n");
+            exit(1);
+        }
+    }
+    int bit = (stream->buf & stream->pos)?1:0;
+    stream->pos <<= 1; // advance the bit position
+    return bit;
+}
+
+int read_bits(struct deflate_stream *stream, int n) {
+    int i, ret = 0;
+    for(i=0; i<n; ++i) {
+        ret |= (read_bit(stream) << i); // bit order is LSB->MSB
+    }
+    return ret;
 }
 
 void read_header(struct deflate_stream *file, struct Header *header) {
@@ -86,67 +99,87 @@ void print_header(struct Header *header) {
     else printf("XFL=0: No extra information\n");
 }
 
-int read_bit(struct deflate_stream *stream) {
-    if(!stream->pos) { // read in new byte
-        stream->pos = 0x01;
-        if(fread(&stream->buf, sizeof(unsigned char), 1, stream->fp) < 1) {
-            fprintf(stderr, "Error reading data\n");
-            exit(1);
+struct huffman_node* traverse_tree(struct huffman_node *root, unsigned int code, int create) {
+    unsigned int bit, mask = 0x01;
+    while(mask != 0) {
+        bit = (code & mask)?1:0;
+        mask <<= 1;
+        if(root->children[bit] == NULL) {
+            if(create) {
+                if((root->children[bit] = calloc(1, sizeof(struct huffman_node))) == NULL) {
+                    perror("calloc failed in traverse_tree");
+                    exit(1);
+                }
+            } else return NULL;
         }
+        root = root->children[bit];
     }
-    int bit = (stream->buf & stream->pos)?1:0;
-    stream->pos <<= 1; // advance the bit position
-    return bit;
 }
 
-int read_bits(struct deflate_stream *stream, int n) {
-    int i, ret = 0;
-    for(i=0; i<n; ++i) {
-        ret |= (read_bit(stream) << i); // bit order is LSB->MSB
+void build_tree(struct huffman_node* root, struct huffman_length lengths[], int lengths_size) {
+    struct huffman_node *curnode;
+    int tmp, i, bl_count[MAX_HUFFMAN_LENGTH+1];
+    unsigned int next_code[MAX_HUFFMAN_LENGTH+1], code;
+    struct Tree *tree;
+
+    // Allocate space for tree
+    if((tree = calloc(lengths[lengths_size-1].end+1, sizeof(struct Tree))) == NULL) {
+        perror("calloc for tree failed in huffman_tree");
+        exit(1);
     }
-    return ret;
+
+    // Build bl_count 
+    memset(bl_count, 0, sizeof(bl_count));
+    for(i=0; i < lengths_size; ++i) {
+        bl_count[lengths[i].len] += lengths[i].end - ((i>0)?lengths[i-1].end:-1);
+    }
+
+    // Compute next_code (from RFC 1951, Section 3.2.2)
+    code = 0;
+    for(i=1; i <= MAX_HUFFMAN_LENGTH; ++i) {
+        code = (code + bl_count[i-1]) << 1;
+        next_code[i] = code;
+    }
+
+    // Build tree (modified from RFC 1951, Section 3.2.2)
+    tmp = 0;
+    for(i = 0; i < lengths[lengths_size-1].end+1; ++i) {
+        if(i > lengths[tmp].end) tmp++;
+        tree[i].len = lengths[tmp].len;
+        tree[i].code = next_code[tree[i].len]++;
+    }
+    
+    // Build the Huffman lookup tree
+    for(i = 0; i < lengths[lengths_size-1].end+1; ++i) {
+        curnode = traverse_tree(root, tree[i].code, 1);
+        curnode->val = i;
+    }
 }
-
-// void convert(struct Tree tree[]) {
-//     int n, bits, max_code, code;
-//     int next_code[MAX_BITS+1], bl_count[MAX_BITS + 1];
-
-//     // Build bl_count
-//     memset(bl_count, 0, sizeof(bl_count));
-//     for(n=0; n<=???; ++n) {
-//         bl_count[tree[n].len]++;
-//     }
-
-//     // Compute next_code
-//     code = 0;
-//     for(bits=1; bits <= MAX_BITS; ++bits) {
-//         code = (code + bl_count[bits-1]) << 1;
-//         next_code[bits] = code;
-//     }
-
-//     // Set codes    
-//     // what is max_code ???
-//     for(n=0; n<=max_code; n++) {
-//         if(tree[n].len != 0) {
-//             tree[n].code = next_code[tree[n].len];
-//             next_code[tree[n].len]++;
-//         }
-//     }
-// }
 
 void deflate(struct deflate_stream *file) {
     int bfinal, btype;
-
+    int len, nlen; // case 0
+    char buf[NONCOMPRESSIBLE_BLOCK_SIZE];
+    struct huffman_node root; // cases 1, 2
+    
     do {
         bfinal = read_bits(file, 1);
         btype = read_bits(file, 2);
-        printf("bfinal: %d, btype: %d\n", bfinal, btype);
-        if(btype == 0) {
-
-        } else if(btype == 1) {
-
-        } else if(btype == 2) {
-
+        printf("\nbfinal: %d, btype: %d\n", bfinal, btype);
+        if(btype == 0) { // uncompressed
+            while(file->pos != 0) read_bits(file, 1); // ignore remainder of block
+            len = read_bits(file, 2);
+            nlen = read_bits(file, 2);
+            if((len & nlen) != 0) {
+                fprintf(stderr, "len, nlen are not complements\n");
+                exit(1);
+            }
+            fread(buf, 1, len, file->fp);
+            // TODO: Copy to output
+        } else if(btype == 1) { // compressed with fixed Huffman
+            build_tree(&root, fixed_huffman, 4);
+        } else if(btype == 2) { // compressed with dynamic Huffman
+            // decode(file);
         } else {
             fprintf(stderr, "Invalid block type: %d", btype);
             exit(1);
@@ -169,7 +202,6 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    init();
     read_header(&file, &header);
     print_header(&header);
     deflate(&file);
