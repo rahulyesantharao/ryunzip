@@ -104,6 +104,6 @@ void print_header(struct FullFile *file);
 struct huffman_node* traverse_tree(struct huffman_node *root, unsigned int code, int len, int create);
 void build_tree(struct huffman_node *root, struct huffman_length lengths[], int lengths_size);
 
-void decode_block(struct huffman_node *literal_root, struct huffman_node *dist_root, struct deflate_stream *stream, char *orig_filename);
+void decode_block(struct huffman_node *literal_root, struct huffman_node *dist_root, struct deflate_stream *stream, FILE *out);
 
 void inflate(struct deflate_stream *stream, char *orig_filename);

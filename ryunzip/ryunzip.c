@@ -151,22 +151,13 @@ void build_tree(struct huffman_node* root, struct huffman_length lengths[], int 
     }
 }
 
-void decode_block(struct huffman_node *literal_root, struct huffman_node *dist_root, struct deflate_stream *stream, char *orig_filename) {
+void decode_block(struct huffman_node *literal_root, struct huffman_node *dist_root, struct deflate_stream *stream, FILE *out) {
     static char buf[MAX_BACK_DIST]; // buffer for backwards distances; remains across blocks
     
     int extra, length, dist, bit, pos, backpos;
     struct huffman_node *node;
-    char filename[MAX_FILE_NAME];
-    FILE *out;
     
     printf("decode_block started\n");
-    snprintf(filename, MAX_FILE_NAME, "%s", orig_filename);
-    if((out = fopen(filename, "w")) == NULL) {
-        perror("Error occurred while opening output file.\n");
-        exit(1);
-    }
-    printf("file opened\n");
-    // MODIFY MTIME
     pos = 0;
 
     while(1) {
@@ -185,7 +176,7 @@ void decode_block(struct huffman_node *literal_root, struct huffman_node *dist_r
             break;
         } else if(node->val < LITERAL_EXT_BASE) {
             buf[pos] = (char)node->val;
-            fprintf(out, "%c", buf[pos]);
+            fwrite(buf + pos, 1, 1, out);
             pos = (pos + 1)%MAX_BACK_DIST;
             continue;
         } else {
@@ -205,7 +196,7 @@ void decode_block(struct huffman_node *literal_root, struct huffman_node *dist_r
         if(backpos < 0) backpos += MAX_BACK_DIST;
         while(length-->0) {
             buf[pos] = buf[backpos];
-            fprintf(out, "%c", buf[pos]);
+            fwrite(buf + pos, 1, 1, out);
             pos = (pos + 1)%MAX_BACK_DIST;
             backpos = (backpos + 1)%MAX_BACK_DIST;
         }
@@ -222,6 +213,14 @@ void inflate(struct deflate_stream *stream, char *orig_filename) {
     int len, nlen; // case 0
     char buf[NONCOMPRESSIBLE_BLOCK_SIZE];
     struct huffman_node root; // cases 1, 2
+    char filename[MAX_FILE_NAME];
+    FILE *out;
+
+    snprintf(filename, MAX_FILE_NAME, "%s", orig_filename);
+    if((out = fopen(filename, "wb")) == NULL) {
+        perror("Error occurred while opening output file.\n");
+        exit(1);
+    }
     
     do {
         bfinal = read_bits(stream, 1);
@@ -236,12 +235,12 @@ void inflate(struct deflate_stream *stream, char *orig_filename) {
                 exit(1);
             }
             fread(buf, 1, len, stream->fp);
-            // TODO: Copy to output
+            fwrite(buf, 1, len, out);        
         } else if(btype == 1) { // compressed with fixed Huffman
             build_tree(&root, fixed_huffman, 4);
             // struct huffman_node *temp = traverse_tree(&root, 0b10011000, 8, 0);
             // printf("10011000: %d\n", temp->val);
-            decode_block(&root, NULL, stream, orig_filename);
+            decode_block(&root, NULL, stream, out);
 
 
         } else if(btype == 2) { // compressed with dynamic Huffman
