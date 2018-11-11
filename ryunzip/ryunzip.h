@@ -4,7 +4,7 @@
 
 #define MAX_HUFFMAN_LENGTH 11 // TODO: FIGURE THIS OUT
 #define MAX_FILE_NAME 100 // arbitrarily set
-#define NONCOMPRESSIBLE_BLOCK_SIZE 65535 // max size for uncompressed block
+#define NONCOMPRESSIBLE_BLOCK_SIZE (1<<16) // max size for uncompressed block
 
 // Flags (FLG)
 #define FTEXT (0x01) // only optionally set

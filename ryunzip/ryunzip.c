@@ -14,7 +14,7 @@ int read_bit(struct deflate_stream *stream) {
     if(!stream->pos) { // read in new byte
         stream->pos = 0x01;
         if(fread(&stream->buf, sizeof(unsigned char), 1, stream->fp) < 1) {
-            fprintf(stderr, "Error reading data\n");
+            perror("Error reading in read_bit\n");
             exit(1);
         }
     }
@@ -170,7 +170,7 @@ void deflate(struct deflate_stream *file) {
             while(file->pos != 0) read_bits(file, 1); // ignore remainder of block
             len = read_bits(file, 2);
             nlen = read_bits(file, 2);
-            if((len & nlen) != 0) {
+            if((len & nlen) != 0) { // sanity check
                 fprintf(stderr, "len, nlen are not complements\n");
                 exit(1);
             }
@@ -198,7 +198,7 @@ int main(int argc, char *argv[]) {
     }
 
     if((file.fp=fopen(argv[1], "rb")) == NULL) {
-        fprintf(stderr, "Invalid file; can't open.\n");
+        perror("Invalid file; can't open.\n");
         return 1;
     }
 
@@ -207,7 +207,7 @@ int main(int argc, char *argv[]) {
     deflate(&file);
 
     if(fclose(file.fp) != 0) {
-        fprintf(stderr, "Error occurred while closing file.\n");
+        perror("Error occurred while closing file.\n");
         return 1;
     }
     return 0;
