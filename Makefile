@@ -8,3 +8,8 @@ OBJ = ryunzip.o
 
 ryunzip: $(OBJ) 
 	$(CC) -o $@ $^ $(CFLAGS)
+
+.PHONY: clean
+
+clean:
+	rm -f *.o ryunzip
