@@ -99,17 +99,18 @@ void print_header(struct Header *header) {
     else printf("XFL=0: No extra information\n");
 }
 
-struct huffman_node* traverse_tree(struct huffman_node *root, unsigned int code, int create) {
-    unsigned int bit, mask = 0x01;
+struct huffman_node* traverse_tree(struct huffman_node *root, unsigned int code, int len, int create) {
+    unsigned int bit, mask = (1<<(len-1));
     while(mask != 0) {
         bit = (code & mask)?1:0;
-        mask <<= 1;
+        mask >>= 1;
         if(root->children[bit] == NULL) {
             if(create) {
                 if((root->children[bit] = calloc(1, sizeof(struct huffman_node))) == NULL) {
                     perror("calloc failed in traverse_tree");
                     exit(1);
                 }
+                root->children[bit]->val = -1;
             } else return NULL;
         }
         root = root->children[bit];
@@ -150,13 +151,80 @@ void build_tree(struct huffman_node* root, struct huffman_length lengths[], int 
     }
     
     // Build the Huffman lookup tree
+    root->val = -1;
     for(i = 0; i < lengths[lengths_size-1].end+1; ++i) {
-        curnode = traverse_tree(root, tree[i].code, 1);
+        curnode = traverse_tree(root, tree[i].code, tree[i].len, 1);
         curnode->val = i;
     }
 }
 
-void deflate(struct deflate_stream *file) {
+void decode_block(struct huffman_node *literal_root, struct huffman_node *dist_root, struct deflate_stream *file, struct Header *header) {
+    static char buf[MAX_BACK_DIST]; // buffer for backwards distances; remains across blocks
+    
+    int extra, length, dist, bit, pos, backpos;
+    struct huffman_node *node;
+    char filename[MAX_FILE_NAME];
+    FILE *out;
+    
+    printf("decode_block started\n");
+    snprintf(filename, MAX_FILE_NAME, "%s", header->filename);
+    if((out = fopen(filename, "w")) == NULL) {
+        perror("Error occurred while opening output file.\n");
+        exit(1);
+    }
+    printf("file opened\n");
+    // MODIFY MTIME
+    pos = 0;
+
+    while(1) {
+        node = literal_root;
+        while(node->val == -1) { // not a leaf node
+            bit = read_bit(file);
+            printf("%d", bit);
+            if(node->children[bit] == NULL) {
+                fprintf(stderr, "Unknown Huffman code encountered.\n");
+                exit(1);
+            }
+            node = node->children[bit];
+        }
+        printf("; val: %d\n", node->val);
+        if(node->val == END_OF_BLOCK) {
+            break;
+        } else if(node->val < LITERAL_EXT_BASE) {
+            buf[pos] = (char)node->val;
+            fprintf(out, "%c", buf[pos]);
+            pos = (pos + 1)%MAX_BACK_DIST;
+            continue;
+        } else {
+            extra = read_bits(file, LITERAL_EXTRA_BITS(node->val));
+            length = extra_alpha_start[node->val - LITERAL_EXT_BASE] + extra;
+        }
+
+        if(dist_root == NULL) {
+            dist = read_bits(file, FIXED_DIST_BITS);
+        }
+        else {
+
+        }
+
+        // copy dist bits from backpos to pos
+        backpos = pos - dist;
+        if(backpos < 0) backpos += MAX_BACK_DIST;
+        while(length-->0) {
+            buf[pos] = buf[backpos];
+            fprintf(out, "%c", buf[pos]);
+            pos = (pos + 1)%MAX_BACK_DIST;
+            backpos = (backpos + 1)%MAX_BACK_DIST;
+        }
+    }
+
+    if(fclose(out) != 0) {
+        perror("Error occurred when closing output file.\n");
+        exit(1);
+    }
+}
+
+void deflate(struct Header *header, struct deflate_stream *file) {
     int bfinal, btype;
     int len, nlen; // case 0
     char buf[NONCOMPRESSIBLE_BLOCK_SIZE];
@@ -178,6 +246,11 @@ void deflate(struct deflate_stream *file) {
             // TODO: Copy to output
         } else if(btype == 1) { // compressed with fixed Huffman
             build_tree(&root, fixed_huffman, 4);
+            // struct huffman_node *temp = traverse_tree(&root, 0b10011000, 8, 0);
+            // printf("10011000: %d\n", temp->val);
+            decode_block(&root, NULL, file, header);
+
+
         } else if(btype == 2) { // compressed with dynamic Huffman
             // decode(file);
         } else {
@@ -204,7 +277,7 @@ int main(int argc, char *argv[]) {
 
     read_header(&file, &header);
     print_header(&header);
-    deflate(&file);
+    deflate(&header, &file);
 
     if(fclose(file.fp) != 0) {
         perror("Error occurred while closing file.\n");

@@ -4,6 +4,7 @@
 
 #define MAX_HUFFMAN_LENGTH 11 // TODO: FIGURE THIS OUT
 #define MAX_FILE_NAME 100 // arbitrarily set
+#define MAX_BACK_DIST (1<<15)
 #define NONCOMPRESSIBLE_BLOCK_SIZE (1<<16) // max size for uncompressed block
 
 // Flags (FLG)
@@ -39,7 +40,7 @@ struct huffman_length {
 };
 
 struct huffman_node {
-    unsigned int val;
+    int val;
     struct huffman_node *children[2];
 };
 
@@ -51,7 +52,32 @@ struct huffman_length fixed_huffman[4] = { // defined in RFC 1952 (Section 3.2.6
     {287, 8}
 };
 
-int alphabet[30];
+#define END_OF_BLOCK 256
+#define LITERAL_EXT_BASE 257
+#define LITERAL_EXTRA_BITS(x) ((x<265)?(0):((x-261)/4))
+int extra_alpha_start[29] = {
+    3, 4, 5, 6, 7, 8, 9, 10, 11, 
+    13, 15, 17, 19, 
+    23, 27, 31, 35, 
+    43, 51, 59, 67,
+    83, 99, 115, 131,
+    163, 195, 227, 258
+};
+
+#define FIXED_DIST_BITS 5
+#define DIST_EXTRA_BITS(x) ((x<4)?(0):((x-2)/2))
+int extra_dist_start[30] = {
+    1, 2, 3, 4, 5, 
+    7, 9, 13, 17,
+    25, 33, 49, 65,
+    97, 129, 193, 257,
+    385, 513, 769, 1025,
+    1537, 2049, 3073, 4097,
+    6145, 8193, 12289, 16385,
+    24577
+};
+
+
 
 // Functions
 int read_bit(struct deflate_stream *stream);
@@ -60,7 +86,7 @@ int read_bits(struct deflate_stream *stream, int n);
 void read_header(struct deflate_stream *file, struct Header *header);
 void print_header(struct Header *header);
 
-struct huffman_node* traverse_tree(struct huffman_node *root, unsigned int code, int create);
+struct huffman_node* traverse_tree(struct huffman_node *root, unsigned int code, int len, int create);
 void build_tree(struct huffman_node *root, struct huffman_length lengths[], int lengths_size);
 
-void deflate(struct deflate_stream *file);
+void deflate(struct Header *header, struct deflate_stream *file);
