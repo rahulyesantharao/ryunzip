@@ -52,4 +52,8 @@ Mkfile.old
 dkms.conf
 
 # Compiled binary
-ryunzip/ryunzip
+ryunzip
+
+# test files
+*.txt
+*.txt.gz
