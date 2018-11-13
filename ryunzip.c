@@ -36,11 +36,18 @@ int read_bit(struct deflate_stream *stream) {
     return bit;
 }
 
-int read_bits(struct deflate_stream *stream, int n) {
+int read_bits(struct deflate_stream *stream, int n, int huffman) {
     int i, ret = 0;
-    // bit order is LSB->MSB
-    for(i=0; i<n; ++i) {
-        ret |= (read_bit(stream) << i);
+    if(huffman) {
+        for(i=0; i<n; ++i) { // bit order is MSB->LSB
+            ret <<= 1; 
+            ret |= read_bit(stream);
+        }
+    }
+    else {
+        for(i=0; i<n; ++i) { // bit order is LSB->MSB
+            ret |= (read_bit(stream) << i);
+        }
     }
     return ret;
 }
@@ -169,7 +176,7 @@ void build_tree(struct huffman_node* root, struct huffman_length lengths[], int 
 void decode_block(struct huffman_node *literal_root, struct huffman_node *dist_root, struct deflate_stream *stream, FILE *out) {
     static char buf[MAX_BACK_DIST]; // buffer for backwards distances; remains across blocks
     
-    int extra, length, dist, bit, pos, backpos;
+    int extra, length, dist, bit, pos, backpos, val;
     struct huffman_node *node;
     
     printf("decode_block started\n");
@@ -186,21 +193,30 @@ void decode_block(struct huffman_node *literal_root, struct huffman_node *dist_r
             }
             node = node->children[bit];
         }
-        printf("; val: %d\n", node->val);
+        printf("; val: %d", node->val);
         if(node->val == END_OF_BLOCK) {
             break;
         } else if(node->val < LITERAL_EXT_BASE) {
+            printf(": %c\n", (char)node->val);
             buf[pos] = (char)node->val;
             fwrite(buf + pos, 1, 1, out);
             pos = (pos + 1)%MAX_BACK_DIST;
             continue;
         } else {
-            extra = read_bits(stream, LITERAL_EXTRA_BITS(node->val));
+            extra = read_bits(stream, LITERAL_EXTRA_BITS(node->val), 0);
             length = extra_alpha_start[node->val - LITERAL_EXT_BASE] + extra;
+            printf(": length: %d\n", length);
         }
 
         if(dist_root == NULL) {
-            dist = read_bits(stream, FIXED_DIST_BITS);
+            val = read_bits(stream, FIXED_DIST_BITS, 1);
+            if(val > 29) {
+                fprintf(stderr, "invalid distance code: %d\n", val);
+                exit(1);
+            }
+            extra = read_bits(stream, DIST_EXTRA_BITS(val), 0);
+            dist = extra_dist_start[val] + extra;
+            printf("val: %d, dist: %d (%d + extra: %d)\n", val, dist, extra, extra_dist_start[val]);
         }
         else {
            node = dist_root;
@@ -214,7 +230,7 @@ void decode_block(struct huffman_node *literal_root, struct huffman_node *dist_r
                 node = node->children[bit];
             }
             printf("; val: %d\n", node->val);
-            extra = read_bits(stream, DIST_EXTRA_BITS(node->val));
+            extra = read_bits(stream, DIST_EXTRA_BITS(node->val), 0);
             dist = extra_dist_start[node->val] + extra;
         }
 
@@ -257,7 +273,7 @@ void decode_code_lengths(struct deflate_stream *stream, struct huffman_node *cod
             printf("\n");
             all_lens[i++] = node->val;
         } else {
-            len = read_bits(stream, code_length_extra_bits[node->val - CODE_LENGTH_EXT_BASE]) + code_length_extra_offsets[node->val - CODE_LENGTH_EXT_BASE];
+            len = read_bits(stream, code_length_extra_bits[node->val - CODE_LENGTH_EXT_BASE], 0) + code_length_extra_offsets[node->val - CODE_LENGTH_EXT_BASE];
             printf("; rep=%d\n", len);
             rep_val = (node->val > CODE_LENGTH_EXT_BASE)?0:all_lens[i-1];
             while(len-->0) {
@@ -279,13 +295,13 @@ void read_huffman_codes(struct deflate_stream *stream, struct huffman_node *lite
     memset(&code_length_root, 0, sizeof(code_length_root));
 
     for(i=0; i<19; i++) code_lengths[i].end = i;
-    hlit = read_bits(stream, HLIT_LEN);
-    hdist = read_bits(stream, HDIST_LEN);
-    hclen = read_bits(stream, HCLEN_LEN);
+    hlit = read_bits(stream, HLIT_LEN, 0);
+    hdist = read_bits(stream, HDIST_LEN, 0);
+    hclen = read_bits(stream, HCLEN_LEN, 0);
 
     // Build code lengths huffman tree
     for(i = 0; i < hclen + HCLEN_OFFSET; ++i) { // read code length huffman tree
-        code_lengths[code_length_order[i]].len = read_bits(stream, 3);
+        code_lengths[code_length_order[i]].len = read_bits(stream, 3, 0);
     }
     build_tree(&code_length_root, code_lengths, 19);
     
@@ -338,13 +354,13 @@ void inflate(struct deflate_stream *stream, char *orig_filename) {
     memset(&dist_root, 0, sizeof(dist_root));
     
     do {
-        bfinal = read_bits(stream, 1);
-        btype = read_bits(stream, 2);
+        bfinal = read_bits(stream, 1, 0);
+        btype = read_bits(stream, 2, 0);
         printf("\nbfinal: %d, btype: %d\n", bfinal, btype);
         if(btype == 0) { // uncompressed
-            while(stream->pos != 0) read_bits(stream, 1); // ignore remainder of block
-            len = read_bits(stream, 2);
-            nlen = read_bits(stream, 2);
+            while(stream->pos != 0) read_bits(stream, 1, 0); // ignore remainder of block
+            len = read_bits(stream, 2, 0);
+            nlen = read_bits(stream, 2, 0);
             if((len & nlen) != 0) { // sanity check
                 fprintf(stderr, "len, nlen are not complements\n");
                 exit(1);

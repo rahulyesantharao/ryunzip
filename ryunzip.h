@@ -112,7 +112,7 @@ int code_length_extra_offsets[3] = {3, 3, 11};
 
 // Functions
 int read_bit(struct deflate_stream *stream);
-int read_bits(struct deflate_stream *stream, int n);
+int read_bits(struct deflate_stream *stream, int n, int huffman);
 
 void read_header(struct deflate_stream *stream, struct FullFile *file);
 void print_header(struct FullFile *file);
