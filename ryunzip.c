@@ -27,7 +27,7 @@ int read_bit(struct deflate_stream *stream) {
     if(!stream->pos) { // read in new byte
         stream->pos = 0x01;
         if(fread(&stream->buf, 1, 1, stream->fp) < 1) {
-            perror("Error reading in read_bit\n");
+            perror("Error reading in read_bit");
             exit(1);
         }
     }
@@ -246,7 +246,7 @@ void decode_block(struct huffman_node *literal_root, struct huffman_node *dist_r
     }
 
     if(fclose(out) != 0) {
-        perror("Error occurred when closing output file.\n");
+        perror("Error occurred when closing output file.");
         exit(1);
     }
 }
@@ -347,7 +347,7 @@ void inflate(struct deflate_stream *stream, char *orig_filename) {
 
     snprintf(filename, MAX_FILE_NAME, "%s", orig_filename);
     if((out = fopen(filename, "wb")) == NULL) {
-        perror("Error occurred while opening output file.\n");
+        perror("Error occurred while opening output file.");
         exit(1);
     }
     memset(&literal_root, 0, sizeof(literal_root));
@@ -397,7 +397,7 @@ int main(int argc, char *argv[]) {
     }
 
     if((stream.fp=fopen(argv[1], "rb")) == NULL) {
-        perror("Invalid file; can't open.\n");
+        perror("Invalid file; can't open.");
         return 1;
     }
 
@@ -406,7 +406,7 @@ int main(int argc, char *argv[]) {
     inflate(&stream, file.filename);
 
     if(fclose(stream.fp) != 0) {
-        perror("Error occurred while closing file.\n");
+        perror("Error occurred while closing file.");
         return 1;
     }
     return 0;
