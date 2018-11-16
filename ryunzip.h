@@ -77,7 +77,7 @@ struct huffman_length fixed_huffman[4] = { // defined in RFC 1952 (Section 3.2.6
 
 #define END_OF_BLOCK 256
 #define LITERAL_EXT_BASE 257
-#define LITERAL_EXTRA_BITS(x) ((x<265)?(0):((x-261)/4))
+#define LITERAL_EXTRA_BITS(x) ((x<265 || x>284)?(0):((x-261)/4))
 #define LITERAL_MAX 285
 int extra_alpha_start[29] = {
     3, 4, 5, 6, 7, 8, 9, 10, 11, 
