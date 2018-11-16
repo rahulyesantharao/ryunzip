@@ -24,9 +24,11 @@ void print_huffman_tree(struct huffman_node *root, unsigned int cur, int len) {
 }
 
 int read_bit(struct deflate_stream *stream) {
+    int r;
     if(!stream->pos) { // read in new byte
         stream->pos = 0x01;
-        if(fread(&stream->buf, 1, 1, stream->fp) < 1) {
+        if((r=fread(&stream->buf, 1, 1, stream->fp)) < 1) {
+            fprintf(stderr, "ret = %d; errno: %d; ", r, errno);
             perror("Error reading in read_bit");
             exit(1);
         }
@@ -205,7 +207,7 @@ void decode_block(struct huffman_node *literal_root, struct huffman_node *dist_r
         } else {
             extra = read_bits(stream, LITERAL_EXTRA_BITS(node->val), 0);
             length = extra_alpha_start[node->val - LITERAL_EXT_BASE] + extra;
-            printf(": length: %d\n", length);
+            printf(": length: %d (%d + extra: %d)\n", length, extra_alpha_start[node->val - LITERAL_EXT_BASE], extra);
         }
 
         if(dist_root == NULL) {
@@ -216,7 +218,10 @@ void decode_block(struct huffman_node *literal_root, struct huffman_node *dist_r
             }
             extra = read_bits(stream, DIST_EXTRA_BITS(val), 0);
             dist = extra_dist_start[val] + extra;
-            printf("val: %d, dist: %d (%d + extra: %d)\n", val, dist, extra, extra_dist_start[val]);
+            for(int i = 5-1; i>=0; --i) {
+                printf("%d", (val&(1<<i))?1:0);
+            }
+            printf("; val: %d, dist: %d (%d + extra: %d)\n", val, dist, extra_dist_start[val], extra);
         }
         else {
            node = dist_root;
