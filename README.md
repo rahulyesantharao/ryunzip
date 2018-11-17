@@ -11,4 +11,4 @@ To test, add the test files you wish to run to `tests/` as `testname.txt`. Then,
 It has only been tested on ASCII text files at the moment, and is untested as of yet on blocks with `BTYPE=00`. Nevertheless, it demonstrates all the key concepts of the DEFLATE algorithm (which is not used in `BTYPE 00`).
 
 ## Writeup
-See a full description here: (coming soon).
+See a full description here: https://rahulyesantharao.com/blog/posts/compression-a-deep-dive-into-gzip.
