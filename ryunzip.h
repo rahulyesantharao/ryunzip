@@ -121,8 +121,8 @@ void print_huffman_tree(struct huffman_node *root, unsigned int cur, int len);
 struct huffman_node* traverse_tree(struct huffman_node *root, unsigned int code, int len, int create);
 void build_tree(struct huffman_node *root, struct huffman_length lengths[], int lengths_size);
 
-void decode_block(struct huffman_node *literal_root, struct huffman_node *dist_root, struct deflate_stream *stream, FILE *out);
-void decode_code_lengths(struct deflate_stream *stream, struct huffman_node *code_length_root, int *all_lens, int num);
-void read_huffman_codes(struct deflate_stream *stream, struct huffman_node *literal_root, struct huffman_node *dist_root);
+void decode_block(struct huffman_node *literal_root, struct huffman_node *dist_root, struct deflate_stream *stream, FILE *out, int verbose);
+void decode_code_lengths(struct deflate_stream *stream, struct huffman_node *code_length_root, int *all_lens, int num, int verbose);
+void read_huffman_codes(struct deflate_stream *stream, struct huffman_node *literal_root, struct huffman_node *dist_root, int verbose);
 
-void inflate(struct deflate_stream *stream, char *orig_filename);
+void inflate(struct deflate_stream *stream, char *orig_filename, int verbose);

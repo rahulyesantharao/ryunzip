@@ -175,31 +175,32 @@ void build_tree(struct huffman_node* root, struct huffman_length lengths[], int 
     }
 }
 
-void decode_block(struct huffman_node *literal_root, struct huffman_node *dist_root, struct deflate_stream *stream, FILE *out) {
+void decode_block(struct huffman_node *literal_root, struct huffman_node *dist_root, struct deflate_stream *stream, FILE *out, int verbose) {
     static char buf[MAX_BACK_DIST]; // buffer for backwards distances; remains across blocks
     
     int extra, length, dist, bit, pos, backpos, val;
     struct huffman_node *node;
     
-    printf("decode_block started\n");
+    if(verbose) printf("decode_block started\n");
     pos = 0;
 
     while(1) {
         node = literal_root;
         while(node->val == -1) { // not a leaf node
             bit = read_bit(stream);
-            printf("%d", bit);
+            if(verbose) printf("%d", bit);
             if(node->children[bit] == NULL) {
                 fprintf(stderr, "Unknown Huffman code for literal encountered.\n");
                 exit(1);
             }
             node = node->children[bit];
         }
-        printf("; val: %d", node->val);
+        if(verbose) printf("; val: %d", node->val);
         if(node->val == END_OF_BLOCK) {
+            if (verbose) printf("\n");
             break;
         } else if(node->val < LITERAL_EXT_BASE) {
-            printf(": %c\n", (char)node->val);
+            if(verbose) printf(": %c\n", (char)node->val);
             buf[pos] = (char)node->val;
             fwrite(buf + pos, 1, 1, out);
             pos = (pos + 1)%MAX_BACK_DIST;
@@ -207,7 +208,7 @@ void decode_block(struct huffman_node *literal_root, struct huffman_node *dist_r
         } else {
             extra = read_bits(stream, LITERAL_EXTRA_BITS(node->val), 0);
             length = extra_alpha_start[node->val - LITERAL_EXT_BASE] + extra;
-            printf(": length: %d (%d + extra: %d)\n", length, extra_alpha_start[node->val - LITERAL_EXT_BASE], extra);
+            if(verbose) printf(": length: %d (%d + extra: %d)\n", length, extra_alpha_start[node->val - LITERAL_EXT_BASE], extra);
         }
 
         if(dist_root == NULL) {
@@ -218,23 +219,25 @@ void decode_block(struct huffman_node *literal_root, struct huffman_node *dist_r
             }
             extra = read_bits(stream, DIST_EXTRA_BITS(val), 0);
             dist = extra_dist_start[val] + extra;
-            for(int i = 5-1; i>=0; --i) {
-                printf("%d", (val&(1<<i))?1:0);
+            if(verbose) {
+                for(int i = 5-1; i>=0; --i) {
+                    printf("%d", (val&(1<<i))?1:0);
+                }
+                printf("; val: %d, dist: %d (%d + extra: %d)\n", val, dist, extra_dist_start[val], extra);
             }
-            printf("; val: %d, dist: %d (%d + extra: %d)\n", val, dist, extra_dist_start[val], extra);
         }
         else {
-           node = dist_root;
+            node = dist_root;
             while(node->val == -1) { // not a leaf node
                 bit = read_bit(stream);
-                printf("%d", bit);
+                if(verbose) printf("%d", bit);
                 if(node->children[bit] == NULL) {
                     fprintf(stderr, "Unknown Huffman code for dist encountered.\n");
                     exit(1);
                 }
                 node = node->children[bit];
             }
-            printf("; val: %d\n", node->val);
+            if(verbose) printf("; val: %d\n", node->val);
             extra = read_bits(stream, DIST_EXTRA_BITS(node->val), 0);
             dist = extra_dist_start[node->val] + extra;
         }
@@ -256,40 +259,40 @@ void decode_block(struct huffman_node *literal_root, struct huffman_node *dist_r
     }
 }
 
-void decode_code_lengths(struct deflate_stream *stream, struct huffman_node *code_length_root, int *all_lens, int num) {
+void decode_code_lengths(struct deflate_stream *stream, struct huffman_node *code_length_root, int *all_lens, int num, int verbose) {
     int bit, len, i, rep_val;
     struct huffman_node *node;
 
-    printf("decode_code_lengths:\n");
+    if(verbose) printf("decode_code_lengths:\n");
 
     for(i = 0; i < num;) {
         node = code_length_root;
         while(node->val == -1) { // not a leaf node
             bit = read_bit(stream);
-            printf("%d", bit);
+            if(verbose) printf("%d", bit);
             if(node->children[bit] == NULL) {
                 fprintf(stderr, "Unknown Huffman code encountered while decoding literal huffman tree.\n");
                 exit(1);
             }
             node = node->children[bit];
         }
-        printf(": %d", node->val);
+        if(verbose) printf(": %d", node->val);
         if(node->val < CODE_LENGTH_EXT_BASE) {
-            printf("\n");
+            if(verbose) printf("\n");
             all_lens[i++] = node->val;
         } else {
             len = read_bits(stream, code_length_extra_bits[node->val - CODE_LENGTH_EXT_BASE], 0) + code_length_extra_offsets[node->val - CODE_LENGTH_EXT_BASE];
-            printf("; rep=%d\n", len);
+            if(verbose) printf("; rep=%d\n", len);
             rep_val = (node->val > CODE_LENGTH_EXT_BASE)?0:all_lens[i-1];
             while(len-->0) {
                 all_lens[i++] = rep_val;
             }
         }
     }
-    printf("decoded %d lengths\n", i);
+    if(verbose) printf("decoded %d lengths\n", i);
 }
 
-void read_huffman_codes(struct deflate_stream *stream, struct huffman_node *literal_root, struct huffman_node *dist_root) {
+void read_huffman_codes(struct deflate_stream *stream, struct huffman_node *literal_root, struct huffman_node *dist_root, int verbose) {
     int hlit, hdist, hclen, i, j;
     int all[LITERAL_MAX + DIST_MAX + 1];
     struct huffman_length code_lengths[19], temp_lengths[LITERAL_MAX+DIST_MAX+1];
@@ -311,10 +314,10 @@ void read_huffman_codes(struct deflate_stream *stream, struct huffman_node *lite
     build_tree(&code_length_root, code_lengths, 19);
     
     // Read in all codes
-    decode_code_lengths(stream, &code_length_root, all, (hlit + hdist + HLIT_OFFSET + HDIST_OFFSET));
+    decode_code_lengths(stream, &code_length_root, all, (hlit + hdist + HLIT_OFFSET + HDIST_OFFSET), verbose);
 
     // Build literal huffman tree
-    printf("Lit Size: %d\n", hlit + HLIT_OFFSET);
+    if(verbose) printf("Lit Size: %d\n", hlit + HLIT_OFFSET);
     j = -1;
     for(i = 0; i<(hlit+HLIT_OFFSET); ++i) {
         if(i>0 && all[i] == all[i-1]) {
@@ -328,7 +331,7 @@ void read_huffman_codes(struct deflate_stream *stream, struct huffman_node *lite
     build_tree(literal_root, temp_lengths, j+1);
 
     // Build dynamic huffman tree
-    printf("Dist Size: %d\n", hdist + HDIST_OFFSET);
+    if(verbose) printf("Dist Size: %d\n", hdist + HDIST_OFFSET);
     j = -1;
     for(; i<(hdist+hlit+HLIT_OFFSET+HDIST_OFFSET); ++i) {
         if(i>(hlit+HLIT_OFFSET) && all[i] == all[i-1]) {
@@ -342,7 +345,7 @@ void read_huffman_codes(struct deflate_stream *stream, struct huffman_node *lite
     build_tree(dist_root, temp_lengths, j+1);
 }
 
-void inflate(struct deflate_stream *stream, char *orig_filename) {
+void inflate(struct deflate_stream *stream, char *orig_filename, int verbose) {
     int bfinal, btype;
     int len, nlen; // case 0
     char buf[NONCOMPRESSIBLE_BLOCK_SIZE];
@@ -361,7 +364,7 @@ void inflate(struct deflate_stream *stream, char *orig_filename) {
     do {
         bfinal = read_bits(stream, 1, 0);
         btype = read_bits(stream, 2, 0);
-        printf("\nbfinal: %d, btype: %d\n", bfinal, btype);
+        if(verbose) printf("\nbfinal: %d, btype: %d\n", bfinal, btype);
         if(btype == 0) { // uncompressed
             while(stream->pos != 0) read_bits(stream, 1, 0); // ignore remainder of block
             len = read_bits(stream, 2, 0);
@@ -376,11 +379,11 @@ void inflate(struct deflate_stream *stream, char *orig_filename) {
             build_tree(&literal_root, fixed_huffman, 4);
             // struct huffman_node *temp = traverse_tree(&root, 0b10011000, 8, 0);
             // printf("10011000: %d\n", temp->val);
-            decode_block(&literal_root, NULL, stream, out);
+            decode_block(&literal_root, NULL, stream, out, verbose);
         } else if(btype == 2) { // compressed with dynamic Huffman
-            read_huffman_codes(stream, &literal_root, &dist_root);
-            print_huffman_tree(&dist_root, 0, 0);
-            decode_block(&literal_root, &dist_root, stream, out);
+            read_huffman_codes(stream, &literal_root, &dist_root, verbose);
+            if(verbose) print_huffman_tree(&dist_root, 0, 0);
+            decode_block(&literal_root, &dist_root, stream, out, verbose);
         } else {
             fprintf(stderr, "Invalid block type: %d", btype);
             exit(1);
@@ -391,24 +394,36 @@ void inflate(struct deflate_stream *stream, char *orig_filename) {
 int main(int argc, char *argv[]) {
     struct deflate_stream stream;
     struct FullFile file;
+    char *zipfile;
+    int verbose = 0;
 
     memset(&stream, 0, sizeof(stream));
     memset(&file, 0, sizeof(file));
     
-    // Open file
-    if(argc != 2) { // check number of arguments
-        fprintf(stderr, "Usage: ryunzip <file>\n");
+    // Check Arguments
+    if(argc < 2 || argc > 3) { // check number of arguments
+        fprintf(stderr, "Usage: ryunzip [-v] <file>\n");
+        return 1;
+    }
+    if ((argc == 3) && (strncmp("-v", argv[1], 3) != 0)) { // check flag
+        fprintf(stderr, "Usage: ryunzip [-v] <file>\n");
         return 1;
     }
 
-    if((stream.fp=fopen(argv[1], "rb")) == NULL) {
+    if(argc == 2) zipfile = argv[1];
+    else {
+        verbose = 1;
+        zipfile = argv[2];
+    }
+
+    if((stream.fp=fopen(zipfile, "rb")) == NULL) {
         perror("Invalid file; can't open.");
         return 1;
     }
 
     read_header(&stream, &file);
-    print_header(&file);
-    inflate(&stream, file.filename);
+    if(verbose) print_header(&file);
+    inflate(&stream, file.filename, verbose);
 
     if(fclose(stream.fp) != 0) {
         perror("Error occurred while closing file.");
