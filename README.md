@@ -22,3 +22,9 @@ It has only been tested on ASCII text files at the moment, and is untested as of
 
 ## Writeup
 See a full description here: https://rahulyesantharao.com/blog/posts/compression-a-deep-dive-into-gzip.
+
+## References
+ - https://www.ietf.org/rfc/rfc1951.txt
+ - https://www.ietf.org/rfc/rfc1952.txt
+ - https://www.forensicswiki.org/wiki/Gzip
+ - http://www.onicos.com/staff/iz/formats/gzip.html
