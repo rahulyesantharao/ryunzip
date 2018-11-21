@@ -10,13 +10,19 @@ SHELL = /bin/sh
 ryunzip: $(OBJ) 
 	$(CC) -o $@ $^ $(CFLAGS)
 
-.PHONY: clean test reset-test
+.PHONY: clean test test-% vtest-% reset-test
 
 clean:
 	rm -f *.o ryunzip
 
 test:
-	./runtests.sh
+	scripts/runtests.sh
+
+test-%:
+	scripts/testfile.sh $* || true
+
+vtest-%:
+	scripts/testfile.sh -v $* || true
 
 reset-test:
 	mv tests/passed/* tests/
