@@ -10,6 +10,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <utime.h>
 
 #include "ryunzip.h"
 
@@ -57,6 +58,32 @@ int read_bits(struct deflate_stream *stream, int n, int huffman) {
     return ret;
 }
 
+void set_metadata(struct FullFile *file) {
+    struct stat st;
+    struct utimbuf utimes;
+    time_t mtime_s;
+
+    // stat the output file
+    if(stat(file->filename, &st) < 0) {
+        perror("set_metadata: stat failed");
+        exit(1);
+    }
+
+    // calculate the mod_time from the header
+    mtime_s = *(time_t*)(file->header.mtime);
+    mtime_s &= (0xffffffff); // clear out top 4 bits
+
+    // set up utimes struct
+    utimes.actime = st.st_atime;
+    utimes.modtime = mtime_s;
+
+    // set new modification time
+    if(utime(file->filename, &utimes) < 0) {
+        perror("set_metadata: utime failed");
+        exit(1);
+    }
+}
+
 void read_header(struct deflate_stream *stream, struct FullFile *file) {
     int i;
 
@@ -93,7 +120,7 @@ void read_header(struct deflate_stream *stream, struct FullFile *file) {
 
 void read_footer(struct deflate_stream *stream, struct FullFile *file) {
     struct stat st;
-    int fd, real_size;
+    int real_size;
     long int tmp;
     char eof;
 
@@ -105,15 +132,9 @@ void read_footer(struct deflate_stream *stream, struct FullFile *file) {
         exit(1);
     }
 
-    // open output file descriptor
-    if((fd = open(file->filename, O_RDONLY)) < 0) {
-        perror("read_footer: open failed");
-        exit(1);
-    }
-
     // stat the output file
-    if(fstat(fd, &st) < 0) {
-        perror("read_footer: fstat failed");
+    if(stat(file->filename, &st) < 0) {
+        perror("read_footer: stat failed");
         exit(1);
     }
 
@@ -127,12 +148,6 @@ void read_footer(struct deflate_stream *stream, struct FullFile *file) {
     }
 
     // TODO: Check crc32 checksum to validate output data
-
-    // close output file descriptor
-    if(close(fd) < 0) {
-        perror("read_footer: close failed");
-        exit(1);
-    }
 }
 
 void print_header(struct FullFile *file) {
@@ -483,6 +498,9 @@ int main(int argc, char *argv[]) {
     
     read_footer(&stream, &file);
     if(verbose) print_footer(&file);
+
+    // set correct metadata
+    set_metadata(&file);
 
     if(fclose(stream.fp) != 0) {
         perror("Error occurred while closing file.");

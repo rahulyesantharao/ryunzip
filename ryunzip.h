@@ -119,6 +119,8 @@ void print_header(struct FullFile *file);
 void read_footer(struct deflate_stream *stream, struct FullFile *file);
 void print_footer(struct FullFile *file);
 
+void set_metadata(struct FullFile *file);
+
 void print_huffman_tree(struct huffman_node *root, unsigned int cur, int len);
 struct huffman_node* traverse_tree(struct huffman_node *root, unsigned int code, int len, int create);
 void build_tree(struct huffman_node *root, struct huffman_length lengths[], int lengths_size);
