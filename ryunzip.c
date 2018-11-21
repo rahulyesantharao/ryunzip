@@ -84,9 +84,19 @@ void set_metadata(struct FullFile *file) {
     }
 }
 
-void read_header(struct deflate_stream *stream, struct FullFile *file) {
-    int i;
+void read_string(struct deflate_stream *stream, char *buf, int MAX_SIZE) {
+    int i = 0;
+    while(i < MAX_SIZE - 1) {
+        fread(buf + i, 1, 1, stream->fp);
+        if(buf[i++] == '\0') break;
+    }
+    if(buf[i-1] != '\0') {
+        fprintf(stderr, "read_string: too many characters!\n");
+        exit(1);
+    }
+}
 
+void read_header(struct deflate_stream *stream, struct FullFile *file) {
     // read in header
     fread(&file->header, 1, sizeof(file->header), stream->fp);
     
@@ -105,16 +115,20 @@ void read_header(struct deflate_stream *stream, struct FullFile *file) {
     }
 
     // deal with flags (only fname right now)
+    // TODO: deal with FTEXT
+    if(file->header.flg & FEXTRA) { // read extra data
+        fread(&file->fextrasize, 1, 2, stream->fp); // read num bytes
+        file->fextra = (char*)malloc(sizeof(char) * file->fextrasize); // allocate space
+        fread(file->fextra, 1, file->fextrasize, stream->fp); // read
+    }
     if(file->header.flg & FNAME) { // read name
-        i = 0;
-        while(i < MAX_FILE_NAME - 1) {
-            fread(file->filename + i, 1, 1, stream->fp);
-            if(file->filename[i++] == '\0') break;
-        }
-        if(file->filename[i-1] != '\0') {
-            fprintf(stderr, "Filename too long!\n");
-            exit(1);
-        }
+        read_string(stream, file->filename, MAX_FILE_NAME);
+    }
+    if(file->header.flg & FCOMMENT) { // read name
+        read_string(stream, file->fcomment, MAX_COMMENT_NAME);
+    }
+    if(file->header.flg & FHCRC) { // read checksum
+        fread(file->crc16, 1, 2, stream->fp);
     }
 }
 
@@ -161,10 +175,22 @@ void print_header(struct FullFile *file) {
     if(file->header.os == 3) printf("Compression OS: Unix\n");
     else printf("Compression OS: Not Unix\n");
 
+    // extra data
+    if(file->header.flg & FEXTRA) {
+        printf("Extra Text: %s\n", file->fextra);
+    }
     // file name
     if(file->header.flg & FNAME) {
         printf("Original File Name: %s\n", file->filename);
     }
+    // comment
+    if(file->header.flg & FCOMMENT) {
+        printf("File Comment: %s\n", file->fcomment);
+    }
+    if(file->header.flg & FHCRC) { // read checksum
+        printf("CRC16: %02x %02x\n", file->crc16[0], file->crc16[1]);
+    }
+
 
     // time
     mtime_s = *(time_t*)(file->header.mtime);

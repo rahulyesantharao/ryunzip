@@ -4,6 +4,7 @@
 
 #define MAX_HUFFMAN_LENGTH 15 // because the code length spec only gives literals from 0-15
 #define MAX_FILE_NAME 100 // arbitrarily set
+#define MAX_COMMENT_NAME 200 // arbitrarily set
 #define MAX_BACK_DIST (1<<15)
 #define NONCOMPRESSIBLE_BLOCK_SIZE (1<<16) // max size for uncompressed block
 
@@ -45,9 +46,10 @@ struct Footer {
 
 struct FullFile {
     struct Header header;
+    int fextrasize;
     char *fextra;
     char filename[MAX_FILE_NAME];
-    char *fcomment;
+    char fcomment[MAX_COMMENT_NAME];
     unsigned char crc16[2]; 
     struct Footer footer;
 };
@@ -113,6 +115,7 @@ int code_length_extra_offsets[3] = {3, 3, 11};
 // Functions
 int read_bit(struct deflate_stream *stream);
 int read_bits(struct deflate_stream *stream, int n, int huffman);
+void read_string(struct deflate_stream *stream, char *buf, int MAX_SIZE);
 
 void read_header(struct deflate_stream *stream, struct FullFile *file);
 void print_header(struct FullFile *file);
