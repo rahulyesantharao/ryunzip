@@ -116,6 +116,8 @@ int read_bits(struct deflate_stream *stream, int n, int huffman);
 
 void read_header(struct deflate_stream *stream, struct FullFile *file);
 void print_header(struct FullFile *file);
+void read_footer(struct deflate_stream *stream, struct FullFile *file);
+void print_footer(struct FullFile *file);
 
 void print_huffman_tree(struct huffman_node *root, unsigned int cur, int len);
 struct huffman_node* traverse_tree(struct huffman_node *root, unsigned int code, int len, int create);

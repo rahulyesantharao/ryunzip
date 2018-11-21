@@ -7,6 +7,9 @@
 #include <time.h>
 #include <errno.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #include "ryunzip.h"
 
@@ -88,11 +91,57 @@ void read_header(struct deflate_stream *stream, struct FullFile *file) {
     }
 }
 
+void read_footer(struct deflate_stream *stream, struct FullFile *file) {
+    struct stat st;
+    int fd, real_size;
+    long int tmp;
+    char eof;
+
+    // read in footer
+    fread(&file->footer, 1, sizeof(file->footer), stream->fp);
+    fread(&eof, 1, 1, stream->fp);
+    if(!feof(stream->fp)) {
+        fprintf(stderr, "Content after footer.\n");
+        exit(1);
+    }
+
+    // open output file descriptor
+    if((fd = open(file->filename, O_RDONLY)) < 0) {
+        perror("read_footer: open failed");
+        exit(1);
+    }
+
+    // stat the output file
+    if(fstat(fd, &st) < 0) {
+        perror("read_footer: fstat failed");
+        exit(1);
+    }
+
+    // Check output filesize against footer filesize data
+    tmp = (long int)st.st_size;
+    tmp %= ((long int)1<<32);
+    real_size = (int)tmp;
+    if(real_size != file->footer.filesize) {
+        fprintf(stderr, "File size mod 2^32 (%d) does not match footer.filesize (%d)\n", real_size, file->footer.filesize);
+        exit(1);
+    }
+
+    // TODO: Check crc32 checksum to validate output data
+
+    // close output file descriptor
+    if(close(fd) < 0) {
+        perror("read_footer: close failed");
+        exit(1);
+    }
+}
+
 void print_header(struct FullFile *file) {
     struct tm mtime;
     time_t mtime_s;
     char buf[80];
     
+    printf("\nHeader:\n");
+
     // OS type
     if(file->header.os == 3) printf("Compression OS: Unix\n");
     else printf("Compression OS: Not Unix\n");
@@ -113,6 +162,12 @@ void print_header(struct FullFile *file) {
     if(file->header.xfl == 2) printf("XFL=2: Max compression, slowest algorithm\n");
     else if(file->header.xfl == 4) printf("XFL=4: Fastest compression algorithm\n");
     else printf("XFL=0: No extra information\n");
+}
+
+void print_footer(struct FullFile *file) {
+    printf("\nFooter:\n");
+    printf("Output filesize (mod 2^32): %d\n", file->footer.filesize);
+    printf("Output file CRC32 checksum: %02x %02x %02x %02x\n", file->footer.checksum[0], file->footer.checksum[1], file->footer.checksum[2], file->footer.checksum[3]);
 }
 
 struct huffman_node* traverse_tree(struct huffman_node *root, unsigned int code, int len, int create) {
@@ -423,7 +478,11 @@ int main(int argc, char *argv[]) {
 
     read_header(&stream, &file);
     if(verbose) print_header(&file);
+
     inflate(&stream, file.filename, verbose);
+    
+    read_footer(&stream, &file);
+    if(verbose) print_footer(&file);
 
     if(fclose(stream.fp) != 0) {
         perror("Error occurred while closing file.");
